@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audio Transcription App (Local Version)</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.3/js/all.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        .container {
+            text-align: center;
+            background-color: white;
+            padding: 2rem;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            width: 80%;
+            max-width: 800px;
+        }
+        .button {
+            font-size: 1.5rem;
+            padding: 0.5rem 1rem;
+            border: none;
+            background-color: #4CAF50;
+            color: white;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s;
+            margin: 0 0.5rem;
+        }
+        .button:hover {
+            background-color: #45a049;
+        }
+        .button:disabled {
+            background-color: #cccccc;
+            cursor: not-allowed;
+        }
+        #transcriptionBox {
+            width: 100%;
+            height: 100px;
+            margin-top: 1rem;
+            resize: vertical;
+        }
+        #transcriptsList {
+            max-height: 200px;
+            overflow-y: auto;
+            border: 1px solid #ddd;
+            margin-top: 1rem;
+            text-align: left;
+        }
+        .transcript-item {
+            padding: 0.5rem;
+            border-bottom: 1px solid #eee;
+            cursor: pointer;
+        }
+        .transcript-item:hover {
+            background-color: #f0f0f0;
+        }
+        #visualizer {
+            width: 100%;
+            height: 100px;
+            background-color: #f0f0f0;
+            margin-top: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Audio Transcription App (Local Version)</h1>
+        <button id="startButton" class="button"><i class="fas fa-microphone"></i> Start</button>
+        <button id="pauseButton" class="button" disabled><i class="fas fa-pause"></i> Pause</button>
+        <button id="stopButton" class="button" disabled><i class="fas fa-stop"></i> Stop</button>
+        <p id="status">Click the Start button to begin recording</p>
+        <canvas id="visualizer"></canvas>
+        <textarea id="interimtranscriptionbox" readonly placeholder="Interim Transcription will appear here..."></textarea>
+        <textarea id="transcriptionBox" readonly placeholder="Transcription will appear here..."></textarea>
+        <h2>Saved Transcripts</h2>
+        <div id="transcriptsList"></div>
+    </div>
+
+    <script>
+        const startButton = document.getElementById('startButton');
+        const pauseButton = document.getElementById('pauseButton');
+        const stopButton = document.getElementById('stopButton');
+        const statusElement = document.getElementById('status');
+        const transcriptionBox = document.getElementById('transcriptionBox');
+        const interimtranscriptionbox = document.getElementById('interimtranscriptionbox');
+        const transcriptsList = document.getElementById('transcriptsList');
+        const visualizer = document.getElementById('visualizer');
+        let recognition;
+        let isRecording = false;
+        let isPaused = false;
+        let audioContext;
+        let analyser;
+        let microphone;
+        var final_transcript = '';
+        if ('webkitSpeechRecognition' in window) {
+            recognition = new webkitSpeechRecognition();
+            recognition.continuous = true;
+            recognition.interimResults = true;
+
+            recognition.onresult = (event) => {
+                //const result = event.results[event.results.length - 1];
+                //const transcript = result[0].transcript;
+                //transcriptionBox.value += transcript;
+                var interim_transcript = '';
+
+                for (var i = event.resultIndex; i < event.results.length; ++i) {
+                    if (event.results[i].isFinal) {
+                        final_transcript += event.results[i][0].transcript;
+                    } else {
+                        interim_transcript += event.results[i][0].transcript;
+                    }
+                    }
+                    final_transcript = capitalize(final_transcript);
+                    
+                    interimtranscriptionbox.value = linebreak(interim_transcript);
+                    transcriptionBox.value = linebreak(final_transcript);
+    ;
+
+                 
+            };
+
+            recognition.onerror = (event) => {
+                console.error('Speech recognition error', event.error);
+                statusElement.textContent = 'Error occurred. Please try again.';
+                stopRecording();
+            };
+        } else {
+            startButton.disabled = true;
+            statusElement.textContent = 'Speech recognition is not supported in this browser.';
+        }
+
+        var two_line = /\n\n/g;
+            var one_line = /\n/g;
+        function linebreak(s) {
+            return s.replace(two_line, '<p></p>').replace(one_line, '<br>');
+            }
+
+        var first_char = /\S/;
+        function capitalize(s) {
+            return s.replace(first_char, function(m) { return m.toUpperCase(); });
+            }
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function(stream) {
+                    recognition.start();
+                    isRecording = true;
+                    isPaused = false;
+                    startButton.disabled = true;
+                    pauseButton.disabled = false;
+                    stopButton.disabled = false;
+                    statusElement.textContent = 'Listening...';
+
+                    // Set up audio context and analyser
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    microphone = audioContext.createMediaStreamSource(stream);
+                    microphone.connect(analyser);
+                    analyser.fftSize = 2048;
+                    visualize();
+                })
+                .catch(function(err) {
+                    console.error('Error accessing microphone:', err);
+                    statusElement.textContent = 'Error accessing microphone. Please check permissions and try again.';
+                });
+        }
+
+        function pauseRecording() {
+            if (isRecording && !isPaused) {
+                recognition.stop();
+                isPaused = true;
+                pauseButton.innerHTML = '<i class="fas fa-play"></i> Resume';
+                statusElement.textContent = 'Paused';
+            } else if (isRecording && isPaused) {
+                recognition.start();
+                isPaused = false;
+                pauseButton.innerHTML = '<i class="fas fa-pause"></i> Pause';
+                statusElement.textContent = 'Listening...';
+            }
+        }
+
+        function stopRecording() {
+            if (recognition) {
+                recognition.stop();
+            }
+            isRecording = false;
+            isPaused = false;
+            startButton.disabled = false;
+            pauseButton.disabled = true;
+            stopButton.disabled = true;
+            pauseButton.innerHTML = '<i class="fas fa-pause"></i> Pause';
+            statusElement.textContent = 'Click the Start button to begin recording';
+
+            // Save the transcript
+            saveTranscript(transcriptionBox.value);
+            updateTranscriptsList();
+            final_transcript = '';
+            transcriptionBox.value= "Start a new recording to see new transcript"
+
+            // Stop the audio context
+            if (audioContext) {
+                audioContext.close();
+            }
+        }
+
+        startButton.addEventListener('click', startRecording);
+        pauseButton.addEventListener('click', pauseRecording);
+        stopButton.addEventListener('click', stopRecording);
+
+        function saveTranscript(text) {
+            const date = new Date().toISOString();
+            const transcripts = JSON.parse(localStorage.getItem('transcripts') || '{}');
+            transcripts[date] = text;
+            localStorage.setItem('transcripts', JSON.stringify(transcripts));
+        }
+
+        function updateTranscriptsList() {
+            const transcripts = JSON.parse(localStorage.getItem('transcripts') || '{}');
+            transcriptsList.innerHTML = '';
+            Object.entries(transcripts).reverse().forEach(([date, text]) => {
+                const item = document.createElement('div');
+                item.className = 'transcript-item';
+                item.textContent = `${new Date(date).toLocaleString()}: ${text.substring(0, 50)}...`;
+                item.addEventListener('click', () => {
+                    transcriptionBox.value = text;
+                });
+                transcriptsList.appendChild(item);
+            });
+        }
+
+        function visualize() {
+            const canvas = visualizer;
+            const canvasCtx = canvas.getContext('2d');
+            const bufferLength = analyser.frequencyBinCount;
+            const dataArray = new Uint8Array(bufferLength);
+
+            function draw() {
+                const WIDTH = canvas.width;
+                const HEIGHT = canvas.height;
+
+                requestAnimationFrame(draw);
+
+                analyser.getByteTimeDomainData(dataArray);
+
+                canvasCtx.fillStyle = 'rgb(200, 200, 200)';
+                canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
+
+                canvasCtx.beginPath();
+
+                const sliceWidth = WIDTH * 1.0 / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = v * HEIGHT / 2;
+
+                    if (i === 0) {
+                        canvasCtx.moveTo(x, y);
+                    } else {
+                        canvasCtx.lineTo(x, y);
+                    }
+
+                    x += sliceWidth;
+                }
+
+                canvasCtx.lineTo(canvas.width, canvas.height / 2);
+                canvasCtx.stroke();
+            }
+
+            draw();
+        }
+        
+        // Initial display of stored transcripts
+        updateTranscriptsList();
+    </script>
+</body>
+</html>
